@@ -20,3 +20,4 @@ theories/test_API.v
 theories/test_quotation.v
 theories/test_lib.v
 theories/tutorial.v
+theories/derive.v

@@ -1,0 +1,66 @@
+
+
+mk-compare-leaf [] [_|_] _ :- fatal-error "Non on the diagonal".
+mk-compare-leaf [_|_] [] _ :- fatal-error "Non on the diagonal".
+mk-compare-leaf [] [] Res :- coq-locate "true" Res.
+mk-compare-leaf [ [X , TX] ] [ [Y , TY] ] Res :- !,
+  assert (TX = TY) "oops4",
+  eq-test TX F,
+  Res = app [ F, X, Y ].
+mk-compare-leaf [ [X , TX] | XS ] [ [Y , TY] | YS ] Res :-
+  assert (TX = TY) "oops4",
+  eq-test TX F,
+  mk-compare-leaf XS YS ResXSYS,
+  Res = app[ {{andb}}, ResXSYS, app [F, X, Y] ].
+
+mk-eq-test3 Ity Args1 Kn Args Km (prod N T F) (lam N T CMP) :- !,
+  pi x\ mk-eq-test3 Ity Args1 Kn [ [x,T] |Args] Km (F x) (CMP x).
+mk-eq-test3 Ity Args1 Kn Args Km _ CMP :-
+  assert (Ity = Else) "oops3",
+  if (Kn = Km)
+    (mk-compare-leaf Args1 Args CMP)
+    (CMP = {{false}}).
+
+mk-eq-test2 Ity Ktypes B Args Kn (prod N T F) (lam N T CMP) :- !,
+  pi x\ mk-eq-test2 Ity Ktypes B [ [x,T] |Args] Kn (F x) (CMP x).
+mk-eq-test2 Ity Ktypes B Args Kn _ CMP :-
+  assert (Ity = Else) "oops2",
+  CMP = (match B (lam _ Ity x\ {{bool}}) Bs),
+  map-i Ktypes (mk-eq-test3 Ity Args Kn []) Bs.
+
+mk-eq-test1 Ity Ktypes A B CMP :-
+  CMP = (match A (lam _ Ity x\ {{bool}}) Bs),
+  map-i Ktypes (mk-eq-test2 Ity Ktypes B []) Bs.
+
+
+derive-eq N (prod _ S F) Ity Ktypes CMP CMPTY :- N > 0, !,
+   M is N - 1,
+   CMPTY = {{ forall (t : lp:S) (f : t -> t -> bool), lp:CMPTY2 t }},
+   (pi t f\
+     eq-test t f =>
+     (derive-eq M (F t) {mk-app Ity [t]} {map Ktypes (subst-prod [t])}
+       (CMP2 t f) (CMPTY2 t))),
+   CMP = {{ fun (t : lp:S) (f : t -> t -> bool) => lp:CMP2 t f }}.
+derive-eq _ (prod _ _ _) _ _ _ _ :- fatal-error "No idexes for now".
+derive-eq 0 (sort _) Ity Ktypes CMP CMPTY :-
+  CMPTY = {{ lp:Ity -> lp:Ity -> bool }},
+  CMP = (fix "f" 0 CMPTY cmp\
+           lam "x" Ity x\
+           lam "y" Ity y\ F cmp x y),
+  pi f x y\
+    eq-test Ity f =>
+    mk-eq-test1 Ity Ktypes x y (F f x y).
+
+% main entry point(s) %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+coq-derive-eq-test (indt GR) :-
+  coq-env-indt GR Ind ParamsNo UParamsNo Ty _Knames Ktypes,
+  assert (Ind = tt) "No support for CoInductive data types",
+  assert (ParamsNo = UParamsNo) "No support for non-uniform parameters",
+  derive-eq ParamsNo Ty (indt GR) Ktypes CMP CMPTY,
+  coq-string-of-gr GR S,
+  EqName is S ^ "_equal",
+  % coq-say CMP,
+  % coq-say CMPTY,
+  coq-env-add-const EqName CMP CMPTY _C.
+
+% vim:set ft=lprolog spelllang=:
