@@ -51,6 +51,52 @@ derive-eq 0 (sort _) Ity Ktypes CMP CMPTY :-
     eq-test Ity f =>
     mk-eq-test1 Ity Ktypes x y (F f x y).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+derive-ind-branch (prod N S F) P K Ity A AT R RTY :- S = Ity,!,
+  R = (lam N S x\ R2 x),
+  RTY = (prod N S x\ prod "_" (app [ P , x]) h \ RTY2 x),
+  ind-h H Rec,
+  pi x\
+    derive-ind-branch (F x) P K Ity [ app [Rec , x] , x |A] [x | AT] (R2 x) (RTY2 x).
+derive-ind-branch (prod N S F) P K Ity A AT R RTY :-
+  R = (lam N S x\ R2 x),
+  RTY = (prod N S x\ RTY2 x),
+  pi x\
+    derive-ind-branch (F x) P K Ity [ x |A] [x|AT] (R2 x) (RTY2 x).
+derive-ind-branch T P K Ity A AT R RTY :- (T = indt _ ; T = app [ indt _ | _ ]),
+  RTY = {mk-app P [{mk-app K {rev AT}}]},
+  ind-h H Rec,
+  R = {mk-app H {rev A}}.
+
+derive-ind1 [] [] Bs P Ity IND INDTY :-
+  (pi f\ map {rev Bs} (x\y\y = x f) (Bs1 f)),
+  INDTY = {{ forall x : lp:Ity, lp:"app [ P, {{x}} ]" }},
+  IND = (fix "ind" 0 INDTY f\
+           lam "x" Ity x\ 
+             match x {{ fun x : lp:Ity => lp:"app [ P, {{x}} ]" }} (Bs1 f)).
+derive-ind1 [T|TS] [K|Ks] Bs P Ity IND INDTY :-
+  INDTY = {{ forall h : lp:BTY , lp:INDTY2 h }},
+  IND = {{ fun h : lp:BTY => lp:IND2 h }},
+  (pi f h\ ind-h h f => derive-ind-branch T P K Ity [] [] (B h f) BTY),
+  pi h\
+    derive-ind1 TS Ks [B h|Bs] P Ity (IND2 h) (INDTY2 h).
+  
+derive-ind N (prod _ S F) Ity Ktypes Knames IND INDTY :- N > 0, !,
+   M is N - 1,
+   INDTY = {{ forall t : lp:S, lp:INDTY2 t }},
+   IND = {{ fun t : lp:S => lp:IND2 t }},
+   pi t\
+    derive-ind M (F t) 
+     {mk-app Ity [t]} {map Ktypes (subst-prod [t])} {map Knames (x\r\mk-app x [t] r)}
+      (IND2 t) (INDTY2 t).
+derive-ind 0 (sort _) Ity Ktypes Knames IND INDTY :-
+  INDTY = {{ forall P : lp:Ity -> Prop, lp:INDTY2 P }},
+  IND = {{ fun P : lp:Ity -> Prop => lp:IND2 P }},
+  pi p\
+    derive-ind1 Ktypes Knames [] p Ity (IND2 p) (INDTY2 p).
+
+
 % main entry point(s) %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 coq-derive-eq-test (indt GR) :-
   coq-env-indt GR Ind ParamsNo UParamsNo Ty _Knames Ktypes,
@@ -62,5 +108,16 @@ coq-derive-eq-test (indt GR) :-
   % coq-say CMP,
   % coq-say CMPTY,
   coq-env-add-const EqName CMP CMPTY _C.
+
+coq-derive-induction (indt GR) :-
+  coq-env-indt GR Ind ParamsNo UParamsNo Ty Knames Ktypes,
+  assert (Ind = tt) "No support for CoInductive data types",
+  assert (ParamsNo = UParamsNo) "No support for non-uniform parameters",
+  derive-ind ParamsNo Ty (indt GR) Ktypes Knames IND INDTY,
+  coq-string-of-gr GR S,
+  EqName is S ^ "_induction",
+  coq-say IND,
+  coq-env-add-const EqName IND INDTY _C.
+  
 
 % vim:set ft=lprolog spelllang=:

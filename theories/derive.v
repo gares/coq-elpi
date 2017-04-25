@@ -8,6 +8,8 @@ Elpi Accumulate File "coq-lib.elpi".
 
 Elpi Accumulate File "coq-derive.elpi".
 
+(* ------------------------------------------------------ *)
+
 Elpi Run "coq-derive-eq-test {{bool}}".
 Elpi Accumulate "eq-test {{bool}} {{bool_equal}}.".
 
@@ -33,3 +35,13 @@ Eval compute in
   weird_equal (W1 (3,true,2)) (W1 (3,true,22)).
 
 Print weird_equal.
+
+(* ------------------------------------------------------ *)
+
+Elpi Trace.
+
+Elpi Run "coq-derive-induction {{nat}}".
+Print nat_induction.
+
+Elpi Run "coq-derive-induction {{list}}".
+Print list_induction.
