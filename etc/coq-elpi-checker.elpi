@@ -1,0 +1,21 @@
+/* coq-elpi: Coq terms as the object language of elpi                        */
+/* license: GNU Lesser General Public License Version 2.1 or later           */
+/* ------------------------------------------------------------------------- */
+
+accumulate elpi-checker.
+
+% redirect to Coq type checking messages
+
+:before "default-typechecking-error"
+error [] :- !.
+:before "default-typechecking-error"
+error Msgs :- !, coq.error {error-concat Msgs}.
+
+pred error-concat i:list string, o:string.
+error-concat [] "".
+error-concat [X|XS] R :- error-concat XS Rest, R is X ^ "\n" ^ Rest.
+
+:before "default-typechecking-warning"
+warning Msg :- !, M is "elpi: " ^ Msg, coq.warn M.
+
+% vim:set ft=lprolog spelllang=:

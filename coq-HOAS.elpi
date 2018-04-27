@@ -1,0 +1,285 @@
+/* Coq terms as the object language of elpi and basic API to access Coq      */
+/* license: GNU Lesser General Public License Version 2.1 or later           */
+/* ------------------------------------------------------------------------- */
+
+/* This file contains the low level API linking Coq and elpi.
+   In particular:
+   - the data type for terms and the evar_map entries (a sequent)
+   - the entry points for commands and tactics
+   - the APIs to access Coq's internals like the environment of theorems
+
+   The marker /*E*/ means *experimental*, i.e. use at your own risk, it may
+   change substantially or even disappear.
+*/
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Entry points
+% 
+% Command and tactic invocation (coq_elpi_vernacular.ml)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Entry point for commands. Eg. "Elpi mycommand foo 3 (f x)." becomes
+%   main [str "foo", int 3, trm (app[f,x])]
+% The encoding of terms is described below.
+pred main i:list argument.
+
+% Entry point for tactics. Eg. "elpi mytactic foo 3 (f x)." becomes
+%   solve [str "foo", int 3, trm (app[f,x])] <goals> <new goals>
+% The encoding of goals is described below.
+pred solve i:list argument, i:list goal, o:list goal.
+% Note: currently the goal list is always of length 1.
+
+% the data type of arguments
+kind argument type.
+type int int    -> argument.
+type str string -> argument.
+type trm term   -> argument.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Coq's terms
+%
+% Types of term formers (coq_elpi_HOAS.ml)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% -- external data types ------------------------------------------------------
+
+% Name for a global object (printed short, but internally they are quite long,
+% eg Coq.Init.Datatypes.nat).
+macro @gref :- ctype "Globnames.global_reference". 
+
+% Universe level for the predicative hierarchy of Type.
+macro @univ :- ctype "Univ.Universe.t".
+
+% Name hints (in binders), can be input writing a name between backticks, e.g.
+% `x` or `_` for anonymous. Important: these are just printing hints with no
+% meaning, hence in elpi two @name are always related: `x` = `y`.
+macro @name :- ctype "Name.t".
+
+% Name as input by the user, e.g. in the declaration of an inductive, the name
+% of constructors are @id (since they matter to the user, e.g. they all must
+% be distinct).
+macro @id :- string.
+
+% Universes (for the "sort" term former)
+kind universe type.
+type prop universe.          % impredicative sort of propositions
+type typ  @univ -> universe. % predicative sort of data types (carries a level)
+
+% -- terms --------------------------------------------------------------------
+kind term type.
+
+type sort  universe -> term. % Prop, Type@{i}
+
+% constants: inductive types, inductive constructors, definitions
+type indt  @gref -> term. % nat, list, ...
+type indc  @gref -> term. % O, S, nil, cons, ...
+type const @gref -> term. % Nat.add, List.append, ...
+
+% binders: to form functions, arities and local definitions
+type lam  @name -> term -> (term -> term) -> term.         % fun x : t =>
+type prod @name -> term -> (term -> term) -> term.         % forall x : t,
+type let  @name -> term -> term -> (term -> term) -> term. % let x : T := v in
+
+% other term formers: function application, pattern matching and recursion
+type app   list term -> term.                   % app [hd|args]
+type match term -> term -> list term -> term.   % match t p [branch])
+type fix   @name -> int -> term -> (term -> term) -> term. % fix name rno ty bo
+
+% missing term (implicit argument, body of an axiom)
+type hole  term.
+
+% NYI
+%type cofix @name -> term -> (term -> term) -> term. % cofix name ty bo
+%type proj  @gref -> term -> term. % applied primitive projection
+
+% Notes about (match Scrutinee TypingFunction Branches) when
+%   Inductive i A : A -> nat -> Type := K : forall a : A, i A a 0
+% and
+%   Scrutinee be a term of type (i bool true 7)
+% 
+% - TypingFunction has a very rigid shape that depends on i. Namely
+%   as many lambdas as indexes plus one lambda for the inductive itself
+%   where the value of the parameters are taken from the type of the scrutinee:
+%     lam `a` (indt "bool") a\
+%      lam `n` (indt "nat) n\
+%       lam `i` (app[indt "i", indt "bool", a n) i\ ..
+%   Such spine of lam cannot be omitted; else elpi cannot read the term back.
+%   See also bind-ind-arity in coq-lib.elpi, that builds such spine for you,
+%   or the higher level api build-match (same file) that also takes
+%   care of breanches.
+% - Branches is a list of terms, the order is the canonical one (the order
+%   of the constructors as they were declared). If the constructor has arguments
+%   (excluding the parameters) then the corresponding term shall be a Coq
+%   function. In this case
+%      lam `x` (indt "bool") x\ ..
+
+% -- helpers ------------------------------------------------------------------
+macro @cast T TY :- (let `cast` TY T x\x).
+
+% -- misc ---------------------------------------------------------------------
+
+% When one writes Constraint Handling Rules unification variables are "frozen",
+% i.e. represented by a fresh constant (the evar key) and a list of terms
+% (typically the variables in scope).
+kind evarkey type.
+type uvar  evarkey -> list term -> term.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Coq's evar_map
+%
+% Context and evar declaration (coq_elpi_goal_HOAS.ml)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% An evar_info 
+%
+% x : ts
+% y := v : x
+% ----------
+% p x y
+%
+% is coded as an elpi goal
+% 
+% pi x1\ decl x1 `x` <t> =>
+%  pi x2\ def x2 `y` <v> Vn x1 =>
+%   declare-evar
+%      [decl x1 `x` <t>, def x2 x1 `y` <v> Vn] (Ev x1 x2) (<p> x1 x2)
+%
+% where, by default, declare-evar creates a syntactic constraint as
+%
+% {x1 x2} : decl x1 `x` <t>, def x2 `y` x1 <v> Vn ?- evar (Ev x1 x2) (<p> x1 x2)
+%   
+% When the program is over, a remaining syntactic constraint like the one above
+% are read back and transformed into the corresponding evar_info.
+%
+% The client may want to provide an alternative implementation of
+% declare-evar that, for example, typechecks the term assigned to Ev
+% (engine/elaborator.elpi does it).
+
+pred decl i:term, o:@name, o:term. % Var Name Ty
+pred def  i:term, o:@name, o:term, o:term, o:term. % Var Name Ty Bo BoNorm
+pred declare-evar i:list prop, i:term, i:term. % Ctx Evar Ty
+
+:name "default-declare-evar"
+declare-evar _Ctx Ev Ty :- evar Ev Ty Ev.
+
+% When a goal (evar _ _ _) is turned into a constraint the context is filtered
+% to only contain decl, def, pp.  For now no handling rules 
+% (engine/elaborator.elpi adds some)
+constraint evar def decl pp read-evar { /* No rules (for now) */ }
+
+pred evar i:term, i:term, o:term. % Evar Ty RefinedSolution
+evar (uvar as X) T  S :- !, declare_constraint (evar X T S) [X].
+
+:name "default-assign-evar"
+evar _ _ _. % volatile, only unresolved evars are considered as evars
+
+% Prints the set of syntactic constraints (i.e. the current evar_map)
+% BUG: it prints all constraints, not just the ones representing evars.
+coq.evd-print :- print_constraints.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Coq's goals and tactic invocation (coq_elpi_goal_HOAS.ml)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+kind extra-info type.
+type goal-name @name -> extra-info.
+
+macro @goal-ctx :- list prop. % in reality only decl and def entries
+
+kind goal type.
+% goal Ctx Solution Ty ExtraInfo
+type goal @goal-ctx -> term -> term -> list extra-info -> goal. 
+% where Ctx is a list of decl or def and Solution is a unification variable
+% to be assigned to a term of type Ty in order to make progress.
+% ExtraInfo contains a list of "extra logical" data attached to the goal.
+
+% The invocation of a tactic with arguments: 3 x "y" (h x)
+% on a goal named "?Goal2" with a sequent like
+%
+% x : t
+% y := v : x
+% ----------
+% g x y
+%
+% is coded as an elpi goal
+% 
+% (pi x1\ decl x1 `x` <t> =>
+%   pi x2\ def x2 x1 `y` <v> Vn =>
+%    declare-evar
+%       [decl x1 `x` <t>, def x2 `y` x1 <v> Vn]
+%       (Evar x1 x2) (<g> x1 x2)),
+% (pi x1\ pi x2\
+%   solve
+%     [int 3, str `x`, str`y`, trm (app[const `h`,x1])]
+%     [goal
+%        [decl x1 `x` <t>, def x2 `y` x1 <v> Vn]
+%        (Evar x1 x2) (<g> x1 x2)
+%        [goal-name `?Goal2`]]
+%     NewGoals
+%
+% If the goal sequent contains other evars, then a tactic invocation is
+% an elpi query made of the conjunction of all the declare-evar queries
+% corresponding to these evars and the query corresponding to the goal
+% sequent. NewGoals can be assigned to a list of goals that should be
+% declared as open. Omitted goals are shelved. If NewGoals is not
+% assigned, then all unresolved evars become new goals, but the order
+% of such goals is not specified.
+%
+% Note that the solve goal is not under a context containg the decl/def
+% entries.  It is up to the user to eventually load the context as follows
+%  solve _ [goal Ctx _ Ty] _ :- Ctx => unwind {whd Ty []} WhdTy.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Declarations for Coq's API (environment read/write access, etc).
+% See coq-builtin.elpi for the list of built-in predicates (coq_elpi_builtin.ml)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ 
+% unspecified means "hole" or "_" or a variable.
+
+% tt = Yes, ff = No, unspecified = No
+macro @coercion? :- bool.  macro @coercion! :- tt.
+macro @opaque?   :- bool.  macro @opaque!   :- tt.
+macro @global?   :- bool.  macro @global!   :- tt.
+
+% Declaration of inductive types
+kind indt-decl type.
+kind indc-decl type.
+kind record-decl type.
+type parameter   @name -> term -> (term -> indt-decl) -> indt-decl.
+type inductive   @id -> term -> (term -> list indc-decl) -> indt-decl.
+type coinductive @id -> term -> (term -> list indc-decl) -> indt-decl.
+type constructor @id -> term -> indc-decl.
+type record      @id -> term -> @id -> record-decl -> indt-decl.
+type field       @coercion? -> @id -> term -> (term -> record-decl) -> record-decl.
+type end-record  record-decl.
+
+% canonical structure instances
+kind cs-instance type.
+type cs-instance term -> term -> term -> cs-instance. % Proj, Value, Instance
+
+% type class instances
+kind tc-instance type.
+type tc-instance term -> int -> tc-instance. % Value, Priority
+
+macro @modpath :- ctype "ModPath.t".
+macro @modtypath :- ctype "ModTypePath.t".
+
+% clauses
+%
+% A clause like
+%   :name "foo" :before "bar" foo X Y :- bar X Z, baz Z Y
+% is represented as
+%   clause "foo" (before "bar") (pi x y z\ foo x y :- bar x z, baz z y)
+% that is exactly what one would load in the context using =>.
+% The name and the grafting specification can be left unspecified.
+
+kind grafting type.
+type before @id -> grating.
+type after @id -> grating.
+kind clause type.
+type clause @id -> grafting -> prop -> clause.
+

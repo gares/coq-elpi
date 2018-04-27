@@ -1,0 +1,207 @@
+/* Unary parametricity translation (Realizability)                           */
+/* license: GNU Lesser General Public License Version 2.1 or later           */
+/* ------------------------------------------------------------------------- */
+
+% Author: Cyril Cohen
+
+:before "subst-lam:fail"
+subst-lam XS T TXS :- !, mk-app T XS TXS.
+
+namespace derive.param1 {
+
+reali-args [] [].
+reali-args [X|Xs] [X,XR|XsR] :- do! [
+  reali X XR,
+  reali-args Xs XsR
+].
+
+reali-map [] [].
+reali-map [X|Xs] [XR|XsR] :- do! [
+  reali X XR,
+  reali-map Xs XsR
+].
+
+pred reali i:term, o:term.
+ 
+reali (sort prop as P) (lam `s` P x\ prod `s1` x _\ P) :- !.
+reali (sort _) (lam `s` (sort (typ U)) x\ prod `s1` x _\ (sort (typ V))) :- !,
+  coq.univ.new [] U, coq.univ.new [] V.
+
+reali (lam N T B) (lam N T x\ lam N1 (TRsubst x) xR\ BR x xR) :- !, do! [
+  coq.name-suffix `P` N N1,
+  reali T TR,
+  (pi x xR\ reali x xR => reali (B x) (BR x xR)),
+  (TRsubst = x\ {subst-lam [x] TR})
+].
+
+reali (prod N T P as Prod) ProdR :- !, do! [
+  coq.name-suffix `P` N N1,
+  reali T TR,
+  (pi x xR\ reali x xR => reali (P x) (PR x xR)),
+  ProdR = lam `f` Prod f\ 
+       prod N T x\ prod N1 {subst-lam [x] TR} xR\
+       {subst-lam [{mk-app f [x]}] (PR x xR)}
+].
+
+reali (app [A|Bs]) ARBsR :- !, do! [
+   reali A AR,
+   reali-args Bs BsR,
+   mk-app AR BsR ARBsR
+].
+
+reali (let N T V B) LetR :- !, do! [
+  coq.name-suffix `P` N N1,
+  reali T TR,
+  reali V VR,
+  (pi x xR\ reali x xR => reali (B x) (BR x xR)),
+  LetR = let N T V x\ let N1 TR VR xR\ BR x xR
+].
+
+reali (match T P Bs) MR :- !, do! [
+  reali T TR, 
+  reali-match P PRM,
+  reali T TR => reali-map Bs BsR,
+  MR = match TR (PRM (x\ match x P Bs)) BsR
+].
+
+reali (fix N Rno T F as Fix) FixR :- !, do! [
+  RnoR is 2 * Rno + 1,
+  RnoR1 is RnoR + 1,
+  reali T TR,
+  (pi x xR\ reali x xR => reali (F x) (FR x xR)),
+  (TRsubst = f\ {subst-lam [f] TR}),
+  (pi f xR\ FixBody f xR = let N (TRsubst (F f)) (FR f xR) fr\
+      {mk-trivial-match RnoR (TRsubst f) [] fr}),
+  (pi f xR\ mk-eta RnoR1 (TRsubst f) (FixBody f xR) (EtaFixBody f xR)),
+  coq.name-suffix N 1 N1,
+  FixR = (let N T Fix f\ fix N1 RnoR (TRsubst f) xR\ EtaFixBody f xR)
+].
+
+:name "reali:end"
+reali X _ :- coq.error "No reali for " X.
+
+% helpers for match return type
+pred reali-match i:term, o:((term -> term) -> term).
+reali-match (lam N T B) PRM :- pi x\ not (B x = lam _ _ _), !, do! [
+  reali T TR,
+  (pi x xR\ reali x xR => reali (B x) (BR x xR)),
+  coq.name-suffix `P` N N1,
+  (pi z z1\ PRM z = 
+    lam N T x\ lam N1 {subst-lam [x] TR} xR\ {mk-app (BR x xR) [z x]})
+].
+
+reali-match (lam N T B) PRM :- do! [
+  reali T TR,
+  (pi x xR\ reali x xR => reali-match (B x) (BR x xR)),
+  coq.name-suffix N 1 N1,
+  (pi z \ PRM z = lam N T x\ lam N1 {subst-lam [x] TR} xR\ BR x xR z)
+].
+
+% Storage: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% We add
+% - "reali atom realizer" for each name (const, indc, indt)
+% - "param1-db (T xs) (RT ys) :- [param1-db xs yy]" for each indt
+% The former predicate is also registered as a type class (used by CoqEAL)
+
+pred reali-store
+  i:string, % Name suffix for the type class
+  i:term,   % Term
+  i:term,   % Translation
+  o:prop.   % Clause
+reali-store N X XR C :- !,
+  Nreali is "reali_" ^ N,
+  Args = [hole, hole, X, XR],
+  coq.elaborate (app [{{@store_reali}}|Args]) T1 T2,
+  coq.env.add-const Nreali T1 T2 _ (const GR),
+  coq.TC.declare-instance GR 0 tt,
+  C = reali X XR.
+
+reali-store-indc Suffix (indc GR as X) XR C :-
+  reali-store {calc ({coq.gr->id GR} ^ Suffix)} X XR C.
+
+mk-clause 0 V1 V2 Rec A B (param1-db Ax Bx :- RecR) :-
+  mk-app A {rev V1} Ax, mk-app B {rev V2} Bx, rev Rec RecR.
+mk-clause N V1 V2 Rec A B (pi x y\ C1 x y) :- N > 0, !, M is N - 1,
+  pi x y\ mk-clause M [x|V1] [y,x|V2] [param1-db x y|Rec] A B (C1 x y).
+
+% toplevel predicates %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+pred dispatch
+  i:term,   % input of the translation
+  i:string, % the name
+  o:list prop.   % the clause
+
+dispatch (const GR as Term) Suffix [Clause] :- !, do! [
+  Name is {coq.gr->id GR} ^ Suffix,
+  coq.env.const GR V _,
+
+  reali V VR,
+  coq.elaborate VR XR TyR,
+
+  coq.env.add-const Name XR TyR _ TermR,
+
+  reali-store Name Term TermR Clause,
+  coq.elpi.accumulate "derive.param1.db" (clause _ _ Clause)
+].
+
+suffix-indc Suffix (indc GR) (indc NewName) :-
+  coq.gr->id GR Name, NewName is Name ^ Suffix.
+
+dispatch (indt GR as Ind) Suffix Clauses :- !, do! [
+  Name is {coq.gr->id GR} ^ Suffix,
+  coq.env.indt GR _ Lno _ Ty Knames Ktypes,
+
+  LnoR is 2 * Lno,
+  reali Ind (indt Name) => reali Ty TyR,
+  reali Ind (indt Name) =>
+    map2 Knames Ktypes (k\ ty\ r\ sigma tyr\
+      reali ty tyr, subst-lam [k] tyr r)
+    KtypesR,
+  map Knames (suffix-indc Suffix) KnamesR,
+  coq.env.indt->decl {subst-lam [Ind] TyR} LnoR
+      (indt Name) KnamesR KtypesR [] DeclR,
+  coq.elaborate-ind-decl DeclR DeclR1,
+
+  coq.env.add-indt DeclR1 (indt GRR),
+
+  reali-store Name Ind (indt GRR) ClauseT,
+  coq.env.indt GRR _ _ _ _ RealNamesR _,
+  map2 Knames RealNamesR (reali-store-indc Name) ClausesK,
+  mk-clause Lno [] [] [] Ind (indt GRR) Clause,
+  Clauses = [Clause, ClauseT|ClausesK],
+  forall Clauses (c\coq.elpi.accumulate "derive.param1.db" (clause _ _ c))
+].
+
+dispatch _ _ _ :- coq.error "derive.param1: not an inductive nor a constant".
+
+main In Out Clause :-
+  coq.locate In T,
+  dispatch T Out Clause.
+
+}
+
+/*
+%%%%%%%%%%%%%%%%%%%%%
+% Tactic entrypoint %
+%%%%%%%%%%%%%%%%%%%%%
+
+% We disable coq-refiner
+:before "refiner-assign-evar"
+  evar _ _ _ :- !.
+
+pred ctx->TC i:(list prop), o:(list (pair term term)).
+ctx->TC [] [] :- !.
+ctx->TC [decl X _ Ty |Xs] [pr X Ty|Is] :- !, ctx->TC Xs Is.
+ctx->TC [def X _ _ _ Ty |Xs] [pr X Ty|Is] :- !, ctx->TC Xs Is.
+
+solve _ [goal Ctx Ev (app[{{@reali}}, T, TR, X, XR]) _] _ :- !,
+  coq.evd-print,
+  coq.say "goal->TC" {ctx->TC Ctx},
+  coq.say "searching reali for" X,
+  reali T TR,
+  reali X XR,
+  Ev = app [{{@Reali}}, T, TR, X, XR],
+  coq.typecheck Ev Ty,
+  coq.say "Ty=" Ty.
+
+*/

@@ -39,7 +39,7 @@
     <define-regex id="end_proof">(Qed)|(Defined)|(Admitted)|(Abort)</define-regex>
     <define-regex id="decl_head">((?'gal'\%{locality}(Program\%{space}+)?(\%{single_decl}|\%{begin_proof}))\%{space}+(?'id'\%{ident}))|((?'gal4list'\%{mult_decl})(?'id_list'(\%{space}+\%{ident})*))</define-regex>
     <define-regex id="lp-var">[A-Z_][A-Za-z-+_0-9?]*</define-regex>
-    <define-regex id="lp-name">[a-z][A-Za-z-+_0-9?]*</define-regex>
+    <define-regex id="lp-name">[a-z][A-Za-z-+_>0-9?\.]*</define-regex>
     <define-regex id="lp-symb">(:-|\\|,|=>|\]|\[)</define-regex>
     <define-regex id="lp-comment">%.*\z</define-regex>
 
@@ -189,7 +189,7 @@
 	  <match>\%{undotted_sep}</match>
 	</context>
 	<context id="elpi">
-	  <start>(Elpi\%{space}+Accumulate\%{space}+&quot;|Elpi\%{space}+Run\%{space}+&quot;)</start>
+		<start>(Elpi\%{space}+Accumulate\%{space}+&quot;|Elpi\%{space}+Db\%{space}+\%{qualit}\%{space}+&quot;|Elpi\%{space}+Query\%{space}+&quot;|Elpi\%{space}+Query\%{space}+\%{qualit}\%{space}+&quot;|Elpi\%{space}+Command\%{space}+\%{qualit}\%{space}+&quot;|Elpi\%{space}+Tactic\%{space}+\%{qualit}\%{space}+&quot;|Elpi\%{space}+Program\%{space}+\%{qualit}\%{space}+&quot;)</start>
 	  <end>&quot;\%{dot_sep}</end>
 	  <include>
 	    <context sub-pattern="0" where="start" style-ref="vernac-keyword"/>
@@ -202,18 +202,20 @@
 		  <keyword>match</keyword>
 		  <keyword>fix</keyword>
 		  <keyword>hole</keyword>
-		  <keyword>axiom</keyword>
 		  <keyword>indc</keyword>
 		  <keyword>indt</keyword>
 		  <keyword>const</keyword>
 		  <keyword>prop</keyword>
 		  <keyword>app</keyword>
 		</context>
-		<context id="typing-keyword" style-ref="def:builtin">
+		<context id="typing-keyword" style-ref="vernac-keyword">
 			<keyword>type</keyword>
 			<keyword>kind</keyword>
 			<keyword>pi</keyword>
 			<keyword>sigma</keyword>
+			<keyword>rule</keyword>
+			<keyword>constraint</keyword>
+			<keyword>namespace</keyword>
 		</context>
 		  <context id="lp-var" style-ref="constr-keyword">
 			  <match>\%{lp-var}</match>
@@ -249,7 +251,7 @@
 	  <keyword>(\%{locality}|((Reserved)|(Tactic))\%{space}+)?Notation</keyword>
 	  <keyword>\%{locality}Infix</keyword>
 	  <keyword>(Print)|(Reset)\%{space}+Extraction\%{space}+(Inline)|(Blacklist)</keyword>
-	  <keyword>(Elpi\%{space}+Trace)|(Elpi\%{space}+Accumulate\%{space}+File)|(Elpi\%{space}+Accumulate)|(Elpi\%{space}+Run)|(Elpi\%{space}+Init)</keyword>
+	  <keyword>(Elpi\%{space}+Trace)|(Elpi\%{space}+Accumulate\%{space}+File)|(Elpi\%{space}+Accumulate\%{space}+Db)|(Elpi\%{space}+Accumulate)|(Elpi\%{space}+Query)|(Elpi\%{space}+Bound\%{space}+Steps)|(Elpi\%{space}+Program)|(Elpi\%{space}+\%{qualit})</keyword>
 	</context>
 	<context id="hint-command" style-ref="vernac-keyword">
 	  <prefix>\%{locality}Hint\%{space}+</prefix>

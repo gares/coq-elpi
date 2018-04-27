@@ -1,6 +1,54 @@
 -R theories elpi
--I src
+
 theories/elpi.v
+
+theories/tutorial/elpi_lang.v
+theories/tutorial/coq_elpi.v
+theories/tutorial/demo_CoqPL2018.v
+theories/tutorial/demo_memoization.v
+
+theories/derive.v
+theories/derive/cast.v
+theories/derive/eq.v
+theories/derive/eqOK.v
+theories/derive/map.v
+theories/derive/isK.v
+theories/derive/projK.v
+theories/derive/param1.v
+theories/derive/param2.v
+theories/derive/param1P.v
+theories/derive/induction.v
+
+theories/ltac/discriminate.v
+theories/ltac/injection.v
+
+theories/tests/test_API.v
+theories/tests/test_quotation.v
+theories/tests/test_lib.v
+theories/tests/test_vernacular1.v
+theories/tests/test_vernacular2.v
+theories/tests/test_tactic.v
+theories/tests/test_elaborator.v
+
+theories/derive/tests/test_derive.v
+theories/derive/tests/test_eq.v
+theories/derive/tests/test_eqOK.v
+theories/derive/tests/test_map.v
+theories/derive/tests/test_isK.v
+theories/derive/tests/test_projK.v
+theories/derive/tests/test_param1.v
+theories/derive/tests/test_param2.v
+theories/derive/tests/test_param1P.v
+theories/derive/tests/test_induction.v
+
+theories/ltac/tests/test_ltac.v
+theories/ltac/tests/test_discriminate.v
+theories/ltac/tests/test_injection.v
+
+theories/attic/test_eq.v
+theories/attic/test_gen.v
+
+-I src
 
 src/coq_elpi_vernacular_syntax.ml4
 src/coq_elpi_vernacular.ml
@@ -9,14 +57,13 @@ src/coq_elpi_utils.mli
 src/coq_elpi_utils.ml
 src/coq_elpi_HOAS.ml
 src/coq_elpi_HOAS.mli
+src/coq_elpi_name_quotation.ml
 src/coq_elpi_glob_quotation.ml
 src/coq_elpi_glob_quotation.mli
-src/coq_elpi_API.ml
-src/coq_elpi_API.mli
+src/coq_elpi_goal_HOAS.ml
+src/coq_elpi_goal_HOAS.mli
+src/coq_elpi_builtins.ml
+src/coq_elpi_builtins.mli
+src/coq_elpi_config.ml
 
 src/elpi_plugin.mlpack
-
-theories/test_API.v
-theories/test_quotation.v
-theories/test_lib.v
-theories/tutorial.v

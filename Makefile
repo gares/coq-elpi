@@ -1,37 +1,74 @@
-OCAMLPATH := $(OCAMLPATH):$(shell pwd)/elpi
+OCAMLPATH := $(OCAMLPATH):$(shell pwd)/elpi/findlib/
 PATH := $(shell pwd)/coq/bin:$(PATH)
-OCAMLDEP := ocamlfind ocamldep
-CAMLOPTLINK := ocamlfind ocamlopt -rectypes -thread -linkpkg -dontlink camlp5.gramlib,unix,str
 export OCAMLPATH
-export OCAMLLIBS = -package elpi -I src
 export PATH
-export OCAMLDEP
-#export VERBOSE=1
-export CAMLOPTLINK
-export ZDEBUG=-g
 
-all: Makefile.coq elpi/elpi.cmxa elpi/META.elpi 
+ifeq "$(COQBIN)" ""
+COQBIN=coq/bin/
+endif
+
+ifeq "$(ELPIDIR)" ""
+ELPIDIR=$(shell which elpi 2>/dev/null && elpi -where)
+endif
+ifeq "$(ELPIDIR)" ""
+ELPIDIR=elpi/findlib/elpi
+endif
+export ELPIDIR
+
+DEPS=$(ELPIDIR)/elpi.cmxa $(ELPIDIR)/elpi.cma $(COQBIN)/coq_makefile
+
+all: Makefile.coq $(DEPS)
+	@if [ -x $(COQBIN)/coqtop.byte ]; then \
+		$(MAKE) --no-print-directory -f Makefile.coq bytefiles; \
+	fi
+	@$(MAKE) --no-print-directory -f Makefile.coq opt
+
+theories/%.vo: force
 	@$(MAKE) --no-print-directory -f Makefile.coq $@
+.merlin: force
+	@rm -f .merlin
+	@$(MAKE) --no-print-directory -f Makefile.coq $@
+coqmf/%: force
+	@$(MAKE) --no-print-directory -f Makefile.coq $*
+.PHONY: force
 
-Makefile.coq: coq/bin/coq_makefile coq/bin/coqdep coq/bin/coqc coq/bin/coqtop _CoqProject
-	@coq/bin/coq_makefile -f _CoqProject -o $@
+Makefile.coq Makefile.coq.conf:  src/coq_elpi_config.ml $(COQBIN)/coq_makefile $(COQBIN)/coqdep $(COQBIN)/coqtop _CoqProject
+	@$(COQBIN)/coq_makefile -f _CoqProject -o Makefile.coq
+	@$(MAKE) --no-print-directory -f Makefile.coq .merlin
 
-coq/%: coq
-	@$(MAKE) --no-print-directory -C coq/ -j2 $*
+src/coq_elpi_config.ml:
+	echo "let elpi_dir = \"$(abspath $(ELPIDIR))\";;" > $@
 
-elpi/%: elpi
-	@$(MAKE) --no-print-directory -C elpi/ $*
+# submodules
+coq/bin/%: coq/config/coq_config.ml
+	@$(MAKE) --no-print-directory -C coq/ -j2 bin/$*
 
-coq:
+# to avoid a race we add a fake dependency among these two
+elpi/findlib/elpi/elpi.cmxa: elpi/Makefile
+	@$(MAKE) --no-print-directory -C elpi/
+elpi/findlib/elpi/elpi.cma: elpi/Makefile elpi/findlib/elpi/elpi.cmxa
+	@$(MAKE) --no-print-directory -C elpi/ byte
+
+coq/config/coq_config.ml:
 	git submodule update --init coq
-	cd coq/ && ./configure -local -debug -annotate && make states
+	cd coq/ && ./configure -local -annotate 
+	cd coq/ && make -j2 && make -j2 byte
 	cp etc/coq-elpi.lang coq/ide/
 
-elpi:
+elpi/Makefile:
 	git submodule update --init elpi
 
 run:
-	coq/bin/coqide theories/test*.v
+	coq/bin/coqide theories/*.v
 
 clean:
 	@$(MAKE) -f Makefile.coq $@
+
+include Makefile.coq.conf
+
+install:
+	@$(MAKE) -f Makefile.coq $@
+	@if [ -x $(COQBIN)/coqtop.byte ]; then \
+		$(MAKE) -f Makefile.coq $@-byte; \
+	fi
+	-cp etc/coq-elpi.lang $(COQMF_COQLIB)/ide/

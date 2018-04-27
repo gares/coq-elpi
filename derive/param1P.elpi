@@ -1,0 +1,73 @@
+/* param1 holds on the full type                                             */
+/* license: GNU Lesser General Public License Version 2.1 or later           */
+/* ------------------------------------------------------------------------- */
+
+namespace derive.param1P {
+
+body-app [] _ [].
+body-app [V|VS] (prod _ T x\ prod _ _ (px\ F x px)) [V,PV | RS] :-
+  param1P-db T PT, PV = app[PT,V],
+  pi x px\ body-app VS (F x px) RS.
+
+oty F _ V _ R :- rev V [X|_], R = F X.
+
+type (`->) term -> pair term term -> prop.
+
+body K _ V _ R :-
+  safe-dest-app K Kname _,
+  Kname `-> (pr KR KRT),
+  body-app V KRT Args,
+  mk-app KR Args R.
+
+body-params 0 T (prod _ XT _\ sort _) K KT R :-
+  RT = (x\ {mk-app T [x]}),
+  R = {{ fix IH (x : lp:XT) {struct x} : lp:RT x := lp:Bo IH x }},
+  safe-dest-app XT (indt GR) _,
+  coq.env.indt GR _ _ _ _ KX _,
+  map2 KX {zip K KT} (a\b\r\ r = a `-> b) K2KR,
+  K2KR => pi f x\
+    param1P-db XT f =>
+    build-match x XT
+      (oty RT)
+      body
+    (Bo f x).
+body-params N T (prod A TA a\ prod P (TP a) (F a)) K KT R :- N > 0,
+  M is N - 2,
+  R = (lam A TA a\
+        lam P (TP a) p\
+         lam _ (prod `x` a x\ app[p,x]) pf\ Bo a p pf), 
+  pi a p pf\ sigma KAP KTAP\
+    map K  (k\ mk-app k [a,p]) KAP,
+    map KT (subst-prod [a,p]) KTAP,
+    param1P-db a pf =>
+      body-params M {mk-app T [a,p]} (F a p) KAP KTAP (Bo a p pf).
+
+pred mk-clause i:int, i:term, i:term, i:list prop, i:term, o:prop.
+mk-clause 0 T (prod _ _ _\ sort _) Acc F (param1P-db T F :- Acc).
+mk-clause N T (prod _ _ a\ prod _ _ (B a)) Acc F R :- N > 0,
+  M is N - 2,
+  R = (pi a pa fpa\ R1 a pa fpa),
+  pi a pa fpa\
+    Acc1 pa fpa = [param1P-db pa fpa|Acc],
+    mk-clause M 
+      {mk-app T [a,pa]} (B a pa) (Acc1 pa fpa) {mk-app F [a,pa,fpa]} (R1 a pa fpa).
+
+main In Suffix [Clause] :- do! [
+  coq.locate In T,
+  assert (T = indt GR) "derive.param1P: not an inductive type",
+  coq.env.indt GR Ind Lno Luno Arity K KT,
+  assert (Ind = tt) "derive.param1P: Coinductive types are not supported",
+  assert (Lno = Luno) "derive.param1P: Non-uniform parameters not supported",
+  Name is {coq.gr->id GR} ^ Suffix,
+  
+  body-params Lno (indt GR) Arity K KT R,
+  coq.typecheck R RT,
+  coq.env.add-const Name R RT _ Cmp,
+
+  mk-clause Lno (indt GR) Arity [] Cmp Clause,
+  coq.elpi.accumulate "derive.param1P.db" (clause _ _ Clause)
+].
+
+}
+
+% vim:set ft=lprolog spelllang=:
