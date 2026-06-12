@@ -1,0 +1,9 @@
+
+
+% [coq.TC.override-solver GR] Declares that goals on GR should be solved
+% using elpi's typeclass solver.
+external func coq.TC.override-solver list string.
+
+
+
+
